@@ -50,6 +50,15 @@ export default function Modal({
     }
   }, [onSave, formId])
 
+  // Lock page scroll while the dialog is open: iOS Safari otherwise scrolls the
+  // body underneath the overlay. Storing the previous inline value keeps stacked
+  // dialogs and fast open/close sequences from leaving the page locked.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {

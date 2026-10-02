@@ -13,7 +13,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from grades.models import Grade
+from grades.models import GRADE_DROPPED, Grade
 from students.models import Student
 from subjects.models import Subject
 
@@ -317,6 +317,204 @@ class WeightedAverageTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data['gwa'], 1.0)
         self.assertEqual(res.data['units_earned'], 3)
+
+
+class DroppedGradeTests(APITestCase):
+    """
+    A dropped subject records automatically at the failing grade points under its
+    own code, and earns no credit units.
+    """
+
+    def setUp(self):
+        self.student = Student.objects.create(
+            user=get_user_model().objects.create_user(
+                username='drp_user', email='drp_user@t.com', password='pw',
+                role=get_user_model().ROLE_STUDENT,
+            ),
+            name='Drop Student',
+            email='drp_user@t.com',
+            program='BS CS',
+            year_level='1st Year',
+        )
+        self.subject = Subject.objects.create(code='DRP101', name='Dropped', units=3)
+        self.passed = Subject.objects.create(code='DRP102', name='Passed', units=4)
+        self.failed = Subject.objects.create(code='DRP103', name='Failed', units=5)
+        self.teacher = get_user_model().objects.create_user(
+            username='drp_teacher', email='drp_teacher@t.com', password='pw',
+            role=get_user_model().ROLE_TEACHER,
+        )
+        self.admin = get_user_model().objects.create_user(
+            username='drp_admin', email='drp_admin@t.com', password='pw',
+            role=get_user_model().ROLE_ADMIN,
+        )
+        for subject in (self.subject, self.passed, self.failed):
+            subject.instructor = self.teacher
+            subject.save()
+
+    def test_drop_is_recorded_at_the_failing_grade_points(self):
+        grade = Grade.objects.create(
+            student=self.student, subject=self.subject,
+            is_dropped=True, recorded_by=self.teacher,
+        )
+        self.assertEqual(grade.letter, GRADE_DROPPED)
+        self.assertEqual(grade.grade_points, Decimal('5.00'))
+        self.assertIsNone(grade.score)
+
+    def test_drop_keeps_its_own_code_and_is_not_a_five(self):
+        """A drop and a failing score share the points but not the code."""
+        dropped = Grade.objects.create(
+            student=self.student, subject=self.subject,
+            is_dropped=True, recorded_by=self.teacher,
+        )
+        failed = Grade.objects.create(
+            student=self.student, subject=self.failed, score=Decimal('60.00'),
+            recorded_by=self.teacher,
+        )
+        self.assertNotEqual(dropped.letter, failed.letter)
+        self.assertEqual(failed.letter, '5.00')
+        self.assertEqual(dropped.grade_points, failed.grade_points)
+
+    def test_drop_counts_against_gpa_and_gwa(self):
+        """Recorded as 5.00, so it still weighs on the averages."""
+        Grade.objects.create(
+            student=self.student, subject=self.passed, score=Decimal('99.00'),
+            recorded_by=self.teacher,
+        )
+        Grade.objects.create(
+            student=self.student, subject=self.subject,
+            is_dropped=True, recorded_by=self.teacher,
+        )
+        # simple mean of 1.00 and 5.00
+        self.assertEqual(self.student.gpa, 3.00)
+        # (4 * 1.00 + 3 * 5.00) / 7 = 19 / 7 = 2.71
+        self.assertEqual(self.student.gwa, 2.71)
+
+    def test_a_five_earns_no_units(self):
+        Grade.objects.create(
+            student=self.student, subject=self.failed, score=Decimal('60.00'),
+            recorded_by=self.teacher,
+        )
+        self.assertEqual(self.student.units_earned, 0)
+
+    def test_a_drop_earns_no_units(self):
+        Grade.objects.create(
+            student=self.student, subject=self.subject,
+            is_dropped=True, recorded_by=self.teacher,
+        )
+        self.assertEqual(self.student.units_earned, 0)
+
+    def test_units_earned_counts_only_passed_subjects(self):
+        Grade.objects.create(
+            student=self.student, subject=self.passed, score=Decimal('99.00'),
+            recorded_by=self.teacher,
+        )
+        Grade.objects.create(
+            student=self.student, subject=self.failed, score=Decimal('60.00'),
+            recorded_by=self.teacher,
+        )
+        Grade.objects.create(
+            student=self.student, subject=self.subject,
+            is_dropped=True, recorded_by=self.teacher,
+        )
+        # Only the 4-unit pass is earned; the 5-unit fail and 3-unit drop are not.
+        self.assertEqual(self.student.units_earned, 4)
+
+    def test_dropped_count_is_reported(self):
+        Grade.objects.create(
+            student=self.student, subject=self.subject,
+            is_dropped=True, recorded_by=self.teacher,
+        )
+        self.assertEqual(self.student.dropped_count, 1)
+
+    def test_api_records_a_drop(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post(reverse('grade-list'), {
+            'student': self.student.id,
+            'subject': self.subject.id,
+            'is_dropped': True,
+            'remark': 'Withdrew after the drop deadline',
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['letter'], GRADE_DROPPED)
+        self.assertEqual(Decimal(str(res.data['grade_points'])), Decimal('5.00'))
+        self.assertIsNone(res.data['score'])
+        self.assertTrue(res.data['is_dropped'])
+
+    def test_api_rejects_a_drop_together_with_a_score(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post(reverse('grade-list'), {
+            'student': self.student.id,
+            'subject': self.subject.id,
+            'is_dropped': True,
+            'score': '80.00',
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('score', res.data)
+
+    def test_api_rejects_inc_and_drop_together(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post(reverse('grade-list'), {
+            'student': self.student.id,
+            'subject': self.subject.id,
+            'is_dropped': True,
+            'is_incomplete': True,
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('is_dropped', res.data)
+
+    def test_a_drop_can_be_undone_back_to_a_score(self):
+        self.client.force_authenticate(user=self.admin)
+        created = self.client.post(reverse('grade-list'), {
+            'student': self.student.id,
+            'subject': self.subject.id,
+            'is_dropped': True,
+        }, format='json')
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+
+        res = self.client.put(
+            reverse('grade-detail', kwargs={'pk': created.data['id']}),
+            {
+                'student': self.student.id,
+                'subject': self.subject.id,
+                'is_dropped': False,
+                'score': '90.00',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['letter'], '1.75')
+        self.assertEqual(self.student.units_earned, 3)
+
+    def test_student_grade_panel_reports_the_drop(self):
+        Grade.objects.create(
+            student=self.student, subject=self.passed, score=Decimal('99.00'),
+            recorded_by=self.teacher,
+        )
+        Grade.objects.create(
+            student=self.student, subject=self.subject,
+            is_dropped=True, recorded_by=self.teacher,
+        )
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.get(reverse('student-grades', kwargs={'pk': self.student.id}))
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['dropped_count'], 1)
+        self.assertEqual(res.data['units_earned'], 4)
+
+        by_code = {g['subject']['code']: g for g in res.data['grades']}
+        self.assertEqual(by_code['DRP101']['letter'], GRADE_DROPPED)
+        self.assertTrue(by_code['DRP101']['is_dropped'])
+        self.assertEqual(by_code['DRP101']['units_earned'], 0)
+        self.assertEqual(by_code['DRP102']['units_earned'], 4)
+
+    def test_scale_endpoint_reports_the_drop_marker(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.get(reverse('grade-scale'))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['dropped'], GRADE_DROPPED)
+        self.assertEqual(Decimal(str(res.data['failing_points'])), Decimal('5.00'))
+        # A drop is a marker, so it is not one of the score bands.
+        self.assertNotIn(GRADE_DROPPED, [b['letter'] for b in res.data['bands']])
 
 
 class TeacherGradeEditingTests(APITestCase):

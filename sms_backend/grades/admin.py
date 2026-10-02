@@ -12,7 +12,10 @@ class GradeAdmin(admin.ModelAdmin):
     Admin configuration for Grade model.
     """
 
-    list_display = ('student', 'subject', 'score', 'letter', 'grade_points', 'recorded_by', 'updated_at')
+    list_display = (
+        'student', 'subject', 'score', 'letter', 'grade_points',
+        'is_incomplete', 'is_dropped', 'recorded_by', 'updated_at',
+    )
     search_fields = ('student__id', 'student__name', 'subject__code', 'subject__name')
-    list_filter = ('letter', 'subject')
+    list_filter = ('letter', 'is_incomplete', 'is_dropped', 'subject')
     readonly_fields = ('letter', 'grade_points', 'created_at', 'updated_at')

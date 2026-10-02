@@ -169,23 +169,38 @@ the University of Antique scale (lower is better):
 - **Below 75.00** $\rightarrow$ **5.00** (Failed)
 
 A subject not completed yet is recorded as **INC** (`is_incomplete=True`) instead of a
-score. INC carries no grade points and is excluded from GPA and GWA. A grade must have
-either a score or the INC flag; neither nor both is rejected.
+score. INC carries no grade points and is excluded from GPA and GWA. A subject withdrawn
+after the drop period is recorded as **DRP** (`is_dropped=True`): it takes the failing
+grade points of **5.00** automatically, under its own code so it is never mistaken for a
+score, and it is counted against GPA and GWA like a 5.00. A grade must have a score, be
+flagged INC, or be flagged dropped; INC and dropped are mutually exclusive, and neither
+may carry a score. Staff can also set grade points directly with `manual_points` for a
+grade the scale has no band for.
 
 Scores $< 0$ or $> 100$ are rejected with `HTTP 400 Bad Request`.
+
+### Credit Units Earned
+$$\text{units\_earned} = \sum \text{units} \quad \text{for subjects passed only}$$
+
+A subject earns its credit units only when it was passed. Anything at or above
+`settings.FAILING_GRADE_POINTS` (5.00) earns none, which covers a failing score, a
+dropped subject, and any manual 5.00. INC earns none either, since it carries no points.
+Failed and dropped subjects still count against GPA and GWA, so the averages and the
+earned-units total deliberately disagree whenever a subject was not passed.
 
 ### Student GPA and GWA
 $$\text{GPA} = \frac{\sum \text{grade\_points}}{\text{number of grades}}$$
 $$\text{GWA} = \frac{\sum (\text{grade\_points} \times \text{units})}{\sum \text{units}}$$
 Both rounded to 2 decimal places, both excluding INC grades, and both returning `5.00`
 if the student has no graded subjects. GWA is weighted by subject units and is the
-figure the university reports.
+figure the university reports. The GWA denominator covers every attempted unit, so a
+failed or dropped subject stays in it; only the earned-units total drops it.
 
 ---
 
 ## 🧪 Automated Test Suite
 
-Run the full test suite with 20 comprehensive unit and integration tests:
+Run the full test suite:
 
 ```bash
 python manage.py test

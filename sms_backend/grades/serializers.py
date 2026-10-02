@@ -49,11 +49,21 @@ class GradeSerializer(serializers.ModelSerializer):
         max_value=Decimal('100.00'),
         required=False,
         allow_null=True,
-        help_text="Numerical score between 0.00 and 100.00. Leave empty when marking INC.",
+        help_text=(
+            "Numerical score between 0.00 and 100.00. "
+            "Leave empty when marking INC or a drop."
+        ),
     )
     is_incomplete = serializers.BooleanField(
         required=False,
         help_text="Mark the subject as not completed yet. Recorded as INC with no grade points.",
+    )
+    is_dropped = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Mark the subject as dropped, i.e. withdrawn after the drop period. "
+            "Recorded as DRP at the failing grade points and earns no credit units."
+        ),
     )
     manual_points = serializers.DecimalField(
         max_digits=3,
@@ -70,14 +80,17 @@ class GradeSerializer(serializers.ModelSerializer):
     )
     letter = serializers.CharField(
         read_only=True,
-        help_text="Server-computed grade (1.00 ... 5.00, or INC).",
+        help_text="Server-computed grade (1.00 ... 5.00, INC, or DRP).",
     )
     grade_points = serializers.DecimalField(
         max_digits=3,
         decimal_places=2,
         read_only=True,
         allow_null=True,
-        help_text="Server-computed grade points (1.00=best, 3.00=pass, 5.00=fail). Empty for INC.",
+        help_text=(
+            "Server-computed grade points (1.00=best, 3.00=pass, 5.00=fail). "
+            "Empty for INC, 5.00 for a drop."
+        ),
     )
     recorded_by = serializers.PrimaryKeyRelatedField(
         read_only=True,
@@ -99,6 +112,7 @@ class GradeSerializer(serializers.ModelSerializer):
             'subject_name',
             'score',
             'is_incomplete',
+            'is_dropped',
             'manual_points',
             'remark',
             'letter',
@@ -138,6 +152,10 @@ class GradeSerializer(serializers.ModelSerializer):
             'is_incomplete',
             getattr(self.instance, 'is_incomplete', False),
         )
+        is_dropped = attrs.get(
+            'is_dropped',
+            getattr(self.instance, 'is_dropped', False),
+        )
         manual_points = attrs.get(
             'manual_points',
             getattr(self.instance, 'manual_points', None),
@@ -146,18 +164,24 @@ class GradeSerializer(serializers.ModelSerializer):
         if not student or not subject:
             raise serializers.ValidationError("Both student and subject must be provided.")
 
-        # An INC grade has no score; a graded one needs a score or a manual grade.
-        if is_incomplete:
+        if is_incomplete and is_dropped:
+            raise serializers.ValidationError({
+                'is_dropped': 'A grade cannot be both INC and dropped.'
+            })
+
+        # An INC or dropped grade has no score; a graded one needs a score or a
+        # manual grade.
+        if is_incomplete or is_dropped:
             if score is not None:
                 raise serializers.ValidationError({
-                    'score': 'An INC grade has no score. Clear the score first.'
+                    'score': 'An INC or dropped grade has no score. Clear the score first.'
                 })
             attrs['score'] = None
             attrs['manual_points'] = None
         else:
             if score is None and manual_points is None:
                 raise serializers.ValidationError({
-                    'score': 'Enter a score, set grade points manually, or mark this grade as INC.'
+                    'score': 'Enter a score, set grade points manually, or mark this grade as INC or dropped.'
                 })
             if manual_points is not None and score is not None:
                 raise serializers.ValidationError({
@@ -185,7 +209,7 @@ class GradeSerializer(serializers.ModelSerializer):
                 )
 
         # Auto-compute letter and grade_points for payload preview/consistency
-        if not is_incomplete and manual_points is None and score is not None:
+        if not is_incomplete and not is_dropped and manual_points is None and score is not None:
             letter, points = compute_grade_details(score)
             attrs['letter'] = letter
             attrs['grade_points'] = points

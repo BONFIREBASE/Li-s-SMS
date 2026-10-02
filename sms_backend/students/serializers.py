@@ -40,6 +40,7 @@ class StudentSerializer(serializers.ModelSerializer):
     units_earned = serializers.IntegerField(read_only=True)
     grades_count = serializers.IntegerField(read_only=True)
     incomplete_count = serializers.IntegerField(source='inc_count', read_only=True)
+    dropped_count = serializers.IntegerField(source='drp_count', read_only=True)
     sections = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -57,12 +58,14 @@ class StudentSerializer(serializers.ModelSerializer):
             'units_earned',
             'grades_count',
             'incomplete_count',
+            'dropped_count',
             'sections',
             'created_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'gpa', 'gwa', 'units_earned', 'grades_count',
-                            'incomplete_count', 'sections', 'created_at', 'updated_at']
+                            'incomplete_count', 'dropped_count', 'sections',
+                            'created_at', 'updated_at']
 
     def get_sections(self, obj):
         return [

@@ -160,7 +160,8 @@ CURRENT_SCHOOL_YEAR = '2025-2026'
 # that catch-all and run makemigrations if the grade codes need a migration.
 #
 # "INC" is not a band: an unfinished subject is marked separately and carries no
-# grade points, so it never appears here.
+# grade points, so it never appears here. "DRP" is not a band either: a dropped
+# subject is recorded at the failing points below, under its own code.
 GRADE_SCALE = [
     {'min': 98.00, 'letter': '1.00', 'points': 1.00, 'label': 'Outstanding', 'description': '98-100'},
     {'min': 95.00, 'letter': '1.25', 'points': 1.25, 'label': 'Excellent', 'description': '95-97'},
@@ -176,6 +177,11 @@ GRADE_SCALE = [
 
 # A grade points value at or below this counts as passed. Must match a band.
 PASSING_GRADE_POINTS = 3.00
+
+# Grade points at or above this earn no credit units. A student who fails or
+# drops a subject still has it counted against GPA and GWA, but the units are
+# not earned. Must match a band; this is the failing band's points.
+FAILING_GRADE_POINTS = 5.00
 
 # Simple JWT Configuration
 SIMPLE_JWT = {

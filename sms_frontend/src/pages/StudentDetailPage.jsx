@@ -6,7 +6,8 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import Modal from '../components/Modal'
 import GradeFormModal from '../components/GradeFormModal'
-import { gradeBadgeClass, gpaColor, gwaColor } from '../utils/grades'
+import { UnitsCell } from '../components/StudentGradePanel'
+import { gradeBadgeClass, gradeDescription, gpaColor, gwaColor } from '../utils/grades'
 import TermFields from '../components/TermFields'
 import useTerms from '../hooks/useTerms'
 
@@ -177,12 +178,18 @@ export default function StudentDetailPage() {
         <div className="detail-field">
           <div className="detail-field-label">GPA (simple average)</div>
           <div className="detail-field-value" style={{ color: gpaColor(data.gpa) }}>
-            {data.gpa.toFixed(2)}
+            {(data.gpa ?? 5).toFixed(2)}
           </div>
         </div>
         <div className="detail-field">
           <div className="detail-field-label">Units Earned</div>
           <div className="detail-field-value">{data.units_earned ?? 0}</div>
+          <div className="detail-field-hint">Failed and dropped subjects excluded</div>
+        </div>
+        <div className="detail-field">
+          <div className="detail-field-label">Dropped</div>
+          <div className="detail-field-value">{data.dropped_count ?? 0}</div>
+          <div className="detail-field-hint">Counts as 5.00, no units</div>
         </div>
         <div className="detail-field">
           <div className="detail-field-label">Total Grades</div>
@@ -288,16 +295,33 @@ export default function StudentDetailPage() {
                 <tr key={g.id}>
                   <td style={{ fontWeight: 500 }}>{g.subject.code}</td>
                   <td>{g.subject.name}</td>
-                  <td>{g.subject.units}</td>
                   <td>
-                    {g.score ?? <span className="badge badge-gp-inc">INC</span>}
+                    <UnitsCell grade={g} />
+                  </td>
+                  <td>
+                    {g.score ?? (
+                      // A score-less row is INC or a drop; the grade column
+                      // already says which, so label the reason here too.
+                      <span
+                        className={g.is_dropped ? 'badge badge-gp-dropped' : 'badge badge-gp-inc'}
+                      >
+                        {g.is_dropped ? 'Dropped' : 'INC'}
+                      </span>
+                    )}
                     {g.remark && (
                       <div style={{ fontSize: 'var(--font-xs)', color: 'var(--color-gray-400)' }}>
                         {g.remark}
                       </div>
                     )}
                   </td>
-                  <td><span className={gradeBadgeClass(g.letter)}>{g.letter}</span></td>
+                  <td>
+                    <span
+                      className={gradeBadgeClass(g.letter)}
+                      title={gradeDescription(g.letter)}
+                    >
+                      {g.letter}
+                    </span>
+                  </td>
                   <td>{g.grade_points ?? '—'}</td>
                   <td style={{ color: 'var(--color-gray-500)' }}>{g.recorded_by || '—'}</td>
                   {canModify && (

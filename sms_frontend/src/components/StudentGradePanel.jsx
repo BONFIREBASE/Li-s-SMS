@@ -1,5 +1,10 @@
 import { IconPlus, IconEdit, IconTrash } from './Icons'
-import { gradeBadgeClass, gradeDescription, gwaColor } from '../utils/grades'
+import {
+  gradeBadgeClass,
+  gradeDescription,
+  gradeUnitsEarned,
+  gwaColor,
+} from '../utils/grades'
 
 /**
  * A single student's grades, shown after selecting their name on the Grades page.
@@ -16,8 +21,7 @@ export default function StudentGradePanel({
 }) {
   const grades = data.grades || []
 
-  return (
-    <div>
+  return (    <div>
       <button className="btn btn-ghost btn-sm back-link" onClick={onBack} id="grades-back-btn">
         &lsaquo; All students
       </button>
@@ -55,11 +59,17 @@ export default function StudentGradePanel({
         <div className="stat-card">
           <div className="stat-card-label">Units Earned</div>
           <div className="stat-card-value">{data.units_earned ?? 0}</div>
+          <div className="stat-hint">Failed and dropped subjects excluded</div>
         </div>
         <div className="stat-card">
           <div className="stat-card-label">Incomplete</div>
           <div className="stat-card-value">{data.incomplete_count ?? 0}</div>
           <div className="stat-hint">Not counted in GWA</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-card-label">Dropped</div>
+          <div className="stat-card-value">{data.dropped_count ?? 0}</div>
+          <div className="stat-hint">Counts as 5.00, no units</div>
         </div>
       </div>
 
@@ -79,8 +89,7 @@ export default function StudentGradePanel({
                 <th>Score</th>
                 <th>Grade</th>
                 <th>Points</th>
-                <th>Recorded By</th>
-                {canModify && <th>Actions</th>}
+                <th>Recorded By</th>                {canModify && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -92,7 +101,9 @@ export default function StudentGradePanel({
                       {g.subject.name}
                     </div>
                   </td>
-                  <td>{g.subject.units}</td>
+                  <td>
+                    <UnitsCell grade={g} />
+                  </td>
 <td>
                       <div style={{ fontWeight: 500 }}>{g.score ?? '—'}</div>
                       {g.remark && (
@@ -154,6 +165,38 @@ export default function StudentGradePanel({
             </tbody>
           </table>
         )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Credit units this subject actually earned.
+ *
+ * A failed or dropped subject shows 0 against its nominal units, so the reason
+ * the student's units-earned total is lower than their subject load is visible
+ * on the row rather than only in the summary card.
+ */
+export function UnitsCell({ grade }) {
+  const nominal = grade.subject.units || 0
+  const earned = grade.units_earned ?? gradeUnitsEarned(grade)
+
+  if (earned === nominal) return <>{earned}</>
+
+  const reason = grade.is_dropped
+    ? 'Dropped'
+    : grade.is_incomplete
+      ? 'Incomplete'
+      : 'Not passed'
+
+  return (
+    <div title={`${reason}: ${nominal} unit${nominal === 1 ? '' : 's'} not earned`}>
+      <span style={{ color: 'var(--color-gray-400)', textDecoration: 'line-through' }}>
+        {nominal}
+      </span>{' '}
+      <span style={{ fontWeight: 600 }}>{earned}</span>
+      <div style={{ fontSize: 'var(--font-xs)', color: 'var(--color-gray-400)' }}>
+        {reason}
       </div>
     </div>
   )

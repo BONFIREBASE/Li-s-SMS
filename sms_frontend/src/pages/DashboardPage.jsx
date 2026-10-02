@@ -119,6 +119,14 @@ export default function DashboardPage() {
           </div>
           <div className="stat-card-value">{data.passing_rate}%</div>
         </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <span className="stat-card-label">Dropped Subjects</span>
+            <div className="stat-card-icon red"><IconGrades /></div>
+          </div>
+          <div className="stat-card-value">{data.dropped_count ?? 0}</div>
+        </div>
       </div>
 
       <div className="chart-card">
@@ -136,7 +144,7 @@ export default function DashboardPage() {
                 title={
                   band
                     ? `${band.label} (${band.description})`
-                    : `${key} (recorded outside the grade scale)`
+                    : gradeDescription(key) || `${key} (recorded outside the grade scale)`
                 }
               >
                 <span className="grade-bar-label">{key}</span>

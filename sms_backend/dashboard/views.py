@@ -51,7 +51,7 @@ class DashboardSummaryView(APIView):
             average_gwa = 0.00
 
         # Grade distribution breakdown, following the configured grading scale
-        from grades.models import GRADE_INC
+        from grades.models import GRADE_DROPPED, GRADE_INC
 
         distribution_counts = (
             Grade.objects.values('letter').annotate(count=Count('id')).order_by('letter')
@@ -60,6 +60,7 @@ class DashboardSummaryView(APIView):
             str(band['letter']): 0 for band in settings.GRADE_SCALE
         }
         distribution_dict[GRADE_INC] = 0
+        distribution_dict[GRADE_DROPPED] = 0
         for item in distribution_counts:
             letter = item['letter']
             # Grades outside the configured bands (manual entries) are added too,
@@ -78,6 +79,11 @@ class DashboardSummaryView(APIView):
             else 0.0
         )
 
+        # A dropped subject is recorded at the failing grade points, so it is
+        # already outside the passing count above; reported separately because it
+        # is a withdrawal rather than an attempt.
+        dropped_count = Grade.objects.filter(is_dropped=True).count()
+
         return Response({
             'total_students': total_students,
             'total_subjects': total_subjects,
@@ -87,4 +93,5 @@ class DashboardSummaryView(APIView):
             'total_teachers': total_teachers,
             'grade_distribution': distribution_dict,
             'passing_rate': passing_rate,
+            'dropped_count': dropped_count,
         })

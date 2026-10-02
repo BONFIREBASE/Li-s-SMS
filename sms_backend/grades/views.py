@@ -67,7 +67,7 @@ class GradeViewSet(viewsets.ModelViewSet):
         """
         from django.conf import settings
 
-        from .models import GRADE_INC
+        from .models import GRADE_DROPPED, GRADE_INC
 
         return Response({
             'bands': [
@@ -81,6 +81,8 @@ class GradeViewSet(viewsets.ModelViewSet):
                 for band in settings.GRADE_SCALE
             ],
             'incomplete': GRADE_INC,
+            'dropped': GRADE_DROPPED,
+            'failing_points': settings.FAILING_GRADE_POINTS,
             'passing_points': settings.PASSING_GRADE_POINTS,
         })
 
@@ -89,11 +91,13 @@ class GradeViewSet(viewsets.ModelViewSet):
         """GET /api/grades/options/ : grade codes available for a manual grade."""
         from django.conf import settings
 
-        from .models import GRADE_INC
+        from .models import GRADE_DROPPED, GRADE_INC
 
         return Response({
             'manual_points': [band['points'] for band in settings.GRADE_SCALE],
             'incomplete': GRADE_INC,
+            'dropped': GRADE_DROPPED,
+            'failing_points': settings.FAILING_GRADE_POINTS,
             'passing_points': settings.PASSING_GRADE_POINTS,
         })
 

@@ -15,6 +15,12 @@ from django.db import models
 # 1.00-5.00 scale, so it carries no grade points and is left out of GPA and GWA.
 GRADE_INC = 'INC'
 
+# Grade code recorded when a subject is dropped, i.e. withdrawn after the drop
+# deadline. A drop is not a score, so it has its own code rather than borrowing
+# a band, but it is recorded at the failing grade points and earns no credit
+# units, exactly like a 5.00.
+GRADE_DROPPED = 'DRP'
+
 
 def compute_grade_details(score: Decimal | float) -> tuple[str, Decimal]:
     """
@@ -70,11 +76,18 @@ class Grade(models.Model):
             MinValueValidator(Decimal('0.00'), message="Score cannot be below 0."),
             MaxValueValidator(Decimal('100.00'), message="Score cannot exceed 100."),
         ],
-        help_text="Numerical score between 0.00 and 100.00. Leave empty for INC.",
+        help_text="Numerical score between 0.00 and 100.00. Leave empty for INC or a drop.",
     )
     is_incomplete = models.BooleanField(
         default=False,
         help_text="Subject not completed yet. Recorded as INC with no grade points.",
+    )
+    is_dropped = models.BooleanField(
+        default=False,
+        help_text=(
+            "Subject withdrawn after the drop period. Recorded as DRP at the "
+            "failing grade points and earns no credit units."
+        ),
     )
     manual_points = models.DecimalField(
         max_digits=3,
@@ -94,7 +107,7 @@ class Grade(models.Model):
     letter = models.CharField(
         max_length=5,
         editable=False,
-        help_text="Auto-computed grade (1.00, 1.25, ..., 5.00, or INC).",
+        help_text="Auto-computed grade (1.00, 1.25, ..., 5.00, INC, or DRP).",
     )
     grade_points = models.DecimalField(
         max_digits=3,
@@ -102,7 +115,10 @@ class Grade(models.Model):
         editable=False,
         null=True,
         blank=True,
-        help_text="Auto-computed grade points (1.00=best, 3.00=pass, 5.00=fail). Empty for INC.",
+        help_text=(
+            "Auto-computed grade points (1.00=best, 3.00=pass, 5.00=fail). "
+            "Empty for INC, 5.00 for a drop."
+        ),
     )
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -122,14 +138,19 @@ class Grade(models.Model):
     def clean(self):
         from django.core.exceptions import ValidationError
 
-        if self.is_incomplete:
+        if self.is_incomplete and self.is_dropped:
+            raise ValidationError({
+                'is_dropped': 'A grade cannot be both INC and dropped.',
+            })
+
+        if self.is_incomplete or self.is_dropped:
             if self.score is not None:
                 raise ValidationError({
-                    'score': 'An INC grade has no score. Clear the score first.',
+                    'score': 'An INC or dropped grade has no score. Clear the score first.',
                 })
-        elif self.score is None:
+        elif self.score is None and self.manual_points is None:
             raise ValidationError({
-                'score': 'Enter a score, set grade points manually, or mark it as INC.',
+                'score': 'Enter a score, set grade points manually, or mark it as INC or dropped.',
             })
 
     def save(self, *args, **kwargs):
@@ -137,6 +158,11 @@ class Grade(models.Model):
         if self.is_incomplete:
             self.letter = GRADE_INC
             self.grade_points = None
+        elif self.is_dropped:
+            # A drop carries the failing grade points so it weighs on GPA and GWA
+            # like a 5.00, but its own code so it is never mistaken for a score.
+            self.grade_points = Decimal(str(settings.FAILING_GRADE_POINTS))
+            self.letter = GRADE_DROPPED
         elif self.manual_points is not None:
             # Staff set the grade points directly; the score bands are bypassed.
             self.grade_points = self.manual_points
@@ -150,4 +176,6 @@ class Grade(models.Model):
     def __str__(self) -> str:
         if self.is_incomplete:
             return f"{self.student.id} - {self.subject.code}: INC"
+        if self.is_dropped:
+            return f"{self.student.id} - {self.subject.code}: {GRADE_DROPPED}"
         return f"{self.student.id} - {self.subject.code}: {self.letter}"

@@ -123,16 +123,31 @@ class Student(models.Model):
 
     @property
     def units_earned(self) -> int:
-        """Total credit units across graded subjects (INC excluded)."""
-        return sum(
-            (g.subject.units or 0)
-            for g in self.grades.filter(grade_points__isnull=False).select_related('subject')
-        )
+        """
+        Total credit units the student has earned.
+
+        A subject only earns its units when it was passed. INC grades carry no
+        grade points and a failing or dropped grade sits at or above
+        settings.FAILING_GRADE_POINTS, so none of those contribute units even
+        though they still count against GPA and GWA.
+        """
+        from decimal import Decimal
+
+        earning = self.grades.filter(
+            grade_points__isnull=False,
+            grade_points__lt=Decimal(str(settings.FAILING_GRADE_POINTS)),
+        ).select_related('subject')
+        return sum((g.subject.units or 0) for g in earning)
 
     @property
     def incomplete_count(self) -> int:
         """How many of this student's subjects are still marked INC."""
         return self.grades.filter(is_incomplete=True).count()
+
+    @property
+    def dropped_count(self) -> int:
+        """How many of this student's subjects were dropped."""
+        return self.grades.filter(is_dropped=True).count()
 
     def __str__(self) -> str:
         return f"{self.id} - {self.name}"

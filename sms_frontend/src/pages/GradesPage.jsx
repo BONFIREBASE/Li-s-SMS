@@ -183,6 +183,11 @@ return (
                             {s.incomplete_count} INC
                           </span>
                         )}
+                        {s.dropped_count > 0 && (
+                          <span className="badge badge-gp-dropped" style={{ marginLeft: 6 }}>
+                            {s.dropped_count} DRP
+                          </span>
+                        )}
                       </td>
                       <td>
                         <span style={{ fontWeight: 600, color: gwaColor(s.gwa ?? 5) }}>

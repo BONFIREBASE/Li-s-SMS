@@ -4,7 +4,7 @@ import { useToast } from '../context/ToastContext'
 import Modal from './Modal'
 import TermFields from './TermFields'
 import useTerms from '../hooks/useTerms'
-import { gradeBadgeClass } from '../utils/grades'
+import { gradeBadgeClass, GRADE_DROPPED, FAILING_GRADE_POINTS } from '../utils/grades'
 
 /** Compare "HH:MM" strings; true when end is not after start. */
 const isEndBeforeStart = (start, end) => {
@@ -26,6 +26,7 @@ export default function GradeFormModal({ show, grade, studentId, studentName, on
     subject: '',
     score: '',
     is_incomplete: false,
+    is_dropped: false,
     manual_points: '',
     remark: '',
   })
@@ -47,6 +48,7 @@ export default function GradeFormModal({ show, grade, studentId, studentName, on
         subject: grade.subject?.id ?? grade.subject ?? '',
         score: grade.score ?? '',
         is_incomplete: Boolean(grade.is_incomplete),
+        is_dropped: Boolean(grade.is_dropped),
         manual_points: grade.manual_points ?? '',
         remark: grade.remark ?? '',
       })
@@ -56,6 +58,7 @@ export default function GradeFormModal({ show, grade, studentId, studentName, on
         subject: '',
         score: '',
         is_incomplete: false,
+        is_dropped: false,
         manual_points: '',
         remark: '',
       })
@@ -66,37 +69,49 @@ export default function GradeFormModal({ show, grade, studentId, studentName, on
 
   const preview = form.is_incomplete
     ? { letter: 'INC', points: 0 }
-    : form.manual_points
+    : form.is_dropped
       ? {
-          letter: Number(form.manual_points).toFixed(2),
-          points: Number(form.manual_points),
-          label: 'Manual entry',
+          letter: GRADE_DROPPED,
+          points: FAILING_GRADE_POINTS,
+          label: 'Dropped · no units earned',
         }
-      : bandForScoreLocal(form.score)
+      : form.manual_points
+        ? {
+            letter: Number(form.manual_points).toFixed(2),
+            points: Number(form.manual_points),
+            label: 'Manual entry',
+          }
+        : bandForScoreLocal(form.score)
 
   const handleSave = async (e) => {
     e?.preventDefault()
     setSaving(true)
+    const isMarker = form.is_incomplete || form.is_dropped
     const payload = {
       student: form.student,
       subject: parseInt(form.subject, 10),
-      score: form.is_incomplete ? null : form.score === '' ? null : form.score,
+      score: isMarker ? null : form.score === '' ? null : form.score,
       is_incomplete: form.is_incomplete,
-      manual_points:
-        form.is_incomplete || !form.manual_points ? null : form.manual_points,
+      is_dropped: form.is_dropped,
+      manual_points: isMarker || !form.manual_points ? null : form.manual_points,
       remark: form.remark || '',
     }
+    const successMessage = form.is_incomplete
+      ? 'INC'
+      : form.is_dropped
+        ? 'Dropped'
+        : null
     try {
       if (grade) {
         await api.put(`/grades/${grade.id}/`, payload)
         addToast(
-          form.is_incomplete ? 'Marked as INC' : 'Grade updated successfully',
+          successMessage ? `Marked as ${successMessage}` : 'Grade updated successfully',
           'success'
         )
       } else {
         await api.post('/grades/', payload)
         addToast(
-          form.is_incomplete ? 'Recorded as INC' : 'Grade recorded successfully',
+          successMessage ? `Recorded as ${successMessage}` : 'Grade recorded successfully',
           'success'
         )
       }
@@ -188,14 +203,16 @@ export default function GradeFormModal({ show, grade, studentId, studentName, on
             step="0.01"
             value={form.score}
             onChange={(e) => setForm({ ...form, score: e.target.value })}
-            disabled={form.is_incomplete || !!form.manual_points}
-            required={!form.is_incomplete && !form.manual_points}
+            disabled={form.is_incomplete || form.is_dropped || !!form.manual_points}
+            required={!form.is_incomplete && !form.is_dropped && !form.manual_points}
             placeholder={
               form.is_incomplete
                 ? 'Not applicable for INC'
-                : form.manual_points
-                  ? 'Not used when a grade is chosen'
-                  : 'e.g., 85.50'
+                : form.is_dropped
+                  ? 'Not applicable for a drop'
+                  : form.manual_points
+                    ? 'Not used when a grade is chosen'
+                    : 'e.g., 85.50'
             }
           />
           {preview && !endTimeInvalid && (
@@ -217,6 +234,7 @@ export default function GradeFormModal({ show, grade, studentId, studentName, on
               id="grade-incomplete"
               type="checkbox"
               checked={form.is_incomplete}
+              disabled={form.is_dropped}
               onChange={(e) =>
                 setForm({
                   ...form,
@@ -230,13 +248,34 @@ export default function GradeFormModal({ show, grade, studentId, studentName, on
               Mark as <strong>INC</strong> (incomplete)
             </span>
           </label>
+          <label className="checkbox-row" htmlFor="grade-dropped">
+            <input
+              id="grade-dropped"
+              type="checkbox"
+              checked={form.is_dropped}
+              disabled={form.is_incomplete}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  is_dropped: e.target.checked,
+                  score: e.target.checked ? '' : form.score,
+                  manual_points: e.target.checked ? '' : form.manual_points,
+                })
+              }
+            />
+            <span>
+              Mark as <strong>Dropped</strong> (DRP)
+            </span>
+          </label>
           <p className="form-hint">
             INC means the subject is not finished. It has no grade points and is left
-            out of GPA and GWA.
+            out of GPA and GWA. Dropped means the student withdrew after the drop
+            period: it records automatically as 5.00, counts against GPA and GWA, and
+            earns no credit units.
           </p>
         </div>
 
-        {!form.is_incomplete && (
+        {!form.is_incomplete && !form.is_dropped && (
           <div className="form-group">
             <label className="form-label" htmlFor="grade-manual">
               Or choose the grade directly

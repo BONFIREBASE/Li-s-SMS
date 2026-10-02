@@ -3,6 +3,7 @@ ViewSets for students app.
 """
 
 import logging
+from decimal import Decimal
 
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
@@ -20,6 +21,20 @@ from .models import Student
 from .serializers import StudentSerializer
 
 logger = logging.getLogger(__name__)
+
+
+def units_earned_for(grade) -> int:
+    """
+    Credit units this single grade earns the student.
+
+    A grade earns its units only when it passed; an INC, a fail, or a drop earns
+    none. Mirrors the rule Student.units_earned applies across subjects.
+    """
+    if grade.grade_points is None:
+        return 0
+    if grade.grade_points >= Decimal(str(settings.FAILING_GRADE_POINTS)):
+        return 0
+    return grade.subject.units or 0
 
 
 class ScheduleGenerationError(Exception):
@@ -60,6 +75,10 @@ class StudentViewSet(viewsets.ModelViewSet):
                 inc_count=Count(
                     'grades',
                     filter=Q(grades__is_incomplete=True),
+                ),
+                drp_count=Count(
+                    'grades',
+                    filter=Q(grades__is_dropped=True),
                 ),
             )
             .all()
@@ -118,6 +137,10 @@ class StudentViewSet(viewsets.ModelViewSet):
                 'letter': g.letter,
                 'grade_points': str(g.grade_points) if g.grade_points is not None else None,
                 'is_incomplete': g.is_incomplete,
+                'is_dropped': g.is_dropped,
+                # A failed or dropped subject still weighs on the average but
+                # earns no units, so the UI can show the difference per row.
+                'units_earned': units_earned_for(g),
                 'manual_points': str(g.manual_points) if g.manual_points is not None else None,
                 'remark': g.remark,
                 'can_edit': can_edit(g),
@@ -136,6 +159,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             'gwa': student.gwa,
             'units_earned': student.units_earned,
             'incomplete_count': student.incomplete_count,
+            'dropped_count': student.dropped_count,
             'total_grades': len(grades_data),
             'grades': grades_data,
         }
